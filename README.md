@@ -11,16 +11,24 @@ API de práctica con FastAPI organizada por dominios: libros y autores sobre Pos
 | Pydantic y pydantic-settings   | Contrato de la API y configuración desde variables de entorno           |
 | SQLAlchemy 2 (async) y asyncpg | Acceso a PostgreSQL                                                     |
 | Alembic                        | Migraciones del esquema                                                 |
-| PostgreSQL en Docker           | Base de datos (`compose.yaml`)                                          |
+| PostgreSQL en Docker           | Base de datos (`compose.yml`)                                           |
 | Ruff y mypy (strict)           | Formateo, linter y comprobación de tipos                                |
 
 ## Puesta en marcha
 
-Crea un archivo `.env` en la raíz del proyecto:
+Copia la plantilla de variables de entorno. En local, los valores son los de `compose.yml`, así que no hace falta cambiar nada:
+
+```bash
+cp .env.example .env
+```
+
+El valor de ejemplo es:
 
 ```
 DATABASE_URL=postgresql+asyncpg://bookstore:bookstore@localhost:5432/bookstore
 ```
+
+El `+asyncpg` es obligatorio: sin él, SQLAlchemy usaría un driver síncrono y la API no arrancaría.
 
 Y después:
 

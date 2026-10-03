@@ -1,5 +1,5 @@
 # Comandos del proyecto bookstore. Escribe "make" para ver la lista.
-.PHONY: help up stop destroy psql migrate migration rollback run check
+.PHONY: help up stop down destroy psql migrate migration rollback run check
 
 help:  ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -11,6 +11,9 @@ up:  ## Levanta Postgres en segundo plano
 
 stop:  ## Apaga el contenedor sin borrarlo
 	docker compose stop
+
+down:  ## Elimina el contenedor (los datos se conservan en el volumen)
+	docker compose down
 
 destroy:  ## Elimina el contenedor Y LOS DATOS
 	docker compose down -v
