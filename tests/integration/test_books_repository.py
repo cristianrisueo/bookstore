@@ -19,7 +19,8 @@ CHECK_VIOLATION = "23514"
 async def test_check_rechaza_paginas_no_positivas(session: AsyncSession) -> None:
     """
     La migración creó el CHECK pages > 0 (alembic check no compara los CHECK), y su violación sale como
-    IntegrityError sin traducir: es la guarda de que solo se traduce la FK de autor.
+    IntegrityError sin traducir: es la guarda de que solo se traduce la FK de autor. Tras el error,
+    la sesión sigue utilizable.
     """
     autor = await SqlAuthorRepository(session).add(AuthorIn(name="Frank Herbert"))
     # model_construct se salta la validación de Pydantic, que rechazaría pages=0 antes de llegar a la BD
@@ -31,12 +32,10 @@ async def test_check_rechaza_paginas_no_positivas(session: AsyncSession) -> None
     original = error.value.orig  # error del driver (asyncpg) que SQLAlchemy envuelve
     assert getattr(original, "sqlstate", None) == CHECK_VIOLATION
     assert getattr(original and original.__cause__, "constraint_name", None) == "ck_books_pages_positive"
-    await session.rollback()
+    # La sesión sigue sirviendo tras el error (el repositorio hizo rollback) y no quedó nada a medias
     assert await session.scalar(select(func.count()).select_from(BookModel)) == 0
 
 
-# TDD en rojo: hoy la violación de la FK sale como IntegrityError, que en HTTP sería un 500
-@pytest.mark.xfail(strict=True, raises=IntegrityError, reason="el repositorio no traduce la FK de autor")
 async def test_anadir_libro_con_autor_inexistente_lanza_author_not_found(session: AsyncSession) -> None:
     """
     Si el autor no existe (por ejemplo, se borró entre la comprobación del servicio y el insert), la FK

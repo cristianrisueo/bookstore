@@ -2,11 +2,26 @@
 from typing import Protocol
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from bookstore.authors.exceptions import AuthorNotFoundError
 from bookstore.books.models import BookModel
 from bookstore.books.schemas import Book, BookIn
+
+# Código SQLSTATE de PostgreSQL para una clave foránea que apunta a una fila inexistente
+FOREIGN_KEY_VIOLATION = "23503"
+
+
+def _violated_constraint(exc: IntegrityError) -> tuple[str | None, str | None]:
+    """
+    Devuelve (SQLSTATE, nombre de la restricción) de un IntegrityError.
+    exc.orig es el error del driver adaptado por SQLAlchemy (lleva el sqlstate), y su causa es la
+    excepción original de asyncpg (lleva constraint_name). asyncpg no publica tipos: de ahí getattr.
+    """
+    original = exc.orig
+    return getattr(original, "sqlstate", None), getattr(original and original.__cause__, "constraint_name", None)
 
 
 class BookRepository(Protocol):
@@ -34,7 +49,17 @@ class SqlBookRepository:
 
         # Lo apunta en la sesión y hace commit para que se guarde en la base de datos
         self._session.add(model)
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            # Deshace la transacción fallida para que la sesión siga utilizable
+            await self._session.rollback()
+
+            # Si el autor no existe (p. ej., se borró tras la comprobación del servicio), es un 404, no un 500.
+            # Se identifica por código y nombre de la restricción: cualquier otra violación (el CHECK de pages) se relanza
+            if _violated_constraint(exc) == (FOREIGN_KEY_VIOLATION, "fk_books_author_id_authors"):
+                raise AuthorNotFoundError(data.author_id) from exc
+            raise
 
         # Obtiene el libro recién creado, con el autor cargado, para devolverlo a la API
         book = await self.get(model.id)
