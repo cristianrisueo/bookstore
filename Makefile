@@ -39,7 +39,7 @@ run:  ## Arranca la API con recarga automática
 	uv run uvicorn bookstore.main:app --reload
 
 check:  ## Formatea, pasa el linter y comprueba los tipos
-	uv run ruff format . && uv run ruff check . && uv run mypy src
+	uv run ruff format . && uv run ruff check . && uv run mypy src tests
 
 # --- Tests ---
 
