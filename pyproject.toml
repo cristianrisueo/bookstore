@@ -37,6 +37,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.14"
 strict = true
 plugins = ["pydantic.mypy"]
+# Los tests no son paquetes (sin __init__.py): el nombre de cada módulo sale de su ruta, así
+# tests/integration/conftest.py y tests/e2e/conftest.py no chocan. src/ se mapea al paquete bookstore
+explicit_package_bases = true
+mypy_path = "src"
 
 [tool.pytest.ini_options]
 # `uv run pytest` a secas nunca necesita el sistema desplegado (E2E y smoke van aparte)

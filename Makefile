@@ -1,5 +1,5 @@
 # Comandos del proyecto bookstore. Escribe "make" para ver la lista.
-.PHONY: help up stop down destroy psql migrate migration rollback run check test test-unit test-integration coverage
+.PHONY: help up stop down destroy psql migrate migration rollback run check test test-unit test-integration coverage e2e smoke
 
 help:  ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -54,3 +54,14 @@ test-integration:  ## Solo integración (Postgres efímero con testcontainers)
 
 coverage:  ## Unitarios + integración con informe de cobertura (terminal y htmlcov/index.html)
 	uv run pytest --cov --cov-report=term --cov-report=html
+
+# --- Sistema desplegado ---
+
+e2e:  ## Levanta la API en contenedores, migra, pasa E2E + smoke y para la API
+	docker compose --profile app up -d --build --wait db api
+	docker compose --profile app run --rm migrate
+	BASE_URL=http://127.0.0.1:8001 uv run pytest tests/e2e; status=$$?; docker compose --profile app stop api; exit $$status
+
+smoke:  ## Smoke contra un sistema ya desplegado. Uso: make smoke BASE_URL=http://...
+	@test -n "$(BASE_URL)" || (echo 'Falta BASE_URL: make smoke BASE_URL=http://...' && exit 1)
+	BASE_URL=$(BASE_URL) uv run pytest tests/e2e/test_smoke.py
