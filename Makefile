@@ -1,5 +1,5 @@
 # Comandos del proyecto bookstore. Escribe "make" para ver la lista.
-.PHONY: help up stop down destroy psql migrate migration rollback run check test test-unit test-integration
+.PHONY: help up stop down destroy psql migrate migration rollback run check test test-unit test-integration coverage
 
 help:  ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -51,3 +51,6 @@ test-unit:  ## Solo unitarios (sin Docker)
 
 test-integration:  ## Solo integración (Postgres efímero con testcontainers)
 	uv run pytest tests/integration
+
+coverage:  ## Unitarios + integración con informe de cobertura (terminal y htmlcov/index.html)
+	uv run pytest --cov --cov-report=term --cov-report=html
