@@ -16,5 +16,39 @@ services:
       timeout: 3s
       retries: 5
 
+  # La API en contenedor. Perfil "app": `make up` sigue levantando solo Postgres para el día a día.
+  # Puerto 8001 para no chocar con `make run` (8000)
+  api:
+    build: .
+    image: bookstore:local
+    profiles: ["app"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bookstore:bookstore@db:5432/bookstore
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Readiness: la API responde y llega a la base de datos (la imagen slim no trae curl)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Aplica las migraciones y termina. Se lanza explícitamente, como el paso del pipeline de despliegue:
+  # docker compose --profile app run --rm migrate
+  migrate:
+    build: .
+    image: bookstore:local
+    profiles: ["app"]
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bookstore:bookstore@db:5432/bookstore
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
