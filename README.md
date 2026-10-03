@@ -54,6 +54,7 @@ Escribe `make` para ver todos los comandos disponibles.
 | `make test`                      | Tests unitarios y de integración (necesita Docker)    |
 | `make test-unit`                 | Solo los unitarios (sin Docker)                       |
 | `make test-integration`          | Solo los de integración (Postgres efímero)            |
+| `make coverage`                  | Tests con informe de cobertura (`htmlcov/index.html`) |
 
 ## Arquitectura
 
