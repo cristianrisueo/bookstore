@@ -1,12 +1,14 @@
 # Conexión a la base de datos.
-# Este archivo prepara tres cosas: el pool de conexiones, las sesiones y la base de las tablas.
+# Este archivo define cómo se construyen el pool de conexiones y las sesiones, y la base de las tablas.
+# No crea nada al importarse: el engine se construye en el lifespan de la app (main.py).
 from collections.abc import AsyncIterator
 
+from fastapi import Request
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from bookstore.core.config import get_settings
+from bookstore.core.config import Settings
 
 # Convención de nombres para índices, restricciones únicas y claves foráneas.
 # Así todas tienen un nombre predecible y Alembic puede borrarlas al deshacer una migración
@@ -15,19 +17,6 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
 }
-
-
-# Lee la configuración (la URL de la base de datos) del .env
-settings = get_settings()
-
-# ENGINE: el pool de conexiones a Postgres. Hay uno solo para toda la aplicación.
-# Crearlo no conecta todavía: las conexiones se abren cuando hacen falta y se reutilizan.
-engine = create_async_engine(settings.database_url, echo=settings.sql_echo)
-
-# FÁBRICA DE SESIONES: crea sesiones ya configuradas, para no repetir la configuración.
-# expire_on_commit=False: tras guardar los cambios (commit), los objetos conservan
-# sus valores en memoria. Si no, Python intentaría releerlos de la base de datos
-SessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
@@ -39,7 +28,28 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """Dependencia de FastAPI: una sesión por petición, que se cierra al terminar."""
-    async with SessionFactory() as session:
+def create_engine(settings: Settings) -> AsyncEngine:
+    """
+    ENGINE: el pool de conexiones a Postgres. Hay uno solo para toda la aplicación.
+    Crearlo no conecta todavía: las conexiones se abren cuando hacen falta y se reutilizan.
+    """
+    return create_async_engine(settings.database_url, echo=settings.sql_echo)
+
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """
+    FÁBRICA DE SESIONES: crea sesiones ya configuradas, para no repetir la configuración.
+    expire_on_commit=False: tras guardar los cambios (commit), los objetos conservan
+    sus valores en memoria. Si no, Python intentaría releerlos de la base de datos
+    """
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """
+    Dependencia de FastAPI: una sesión por petición, que se cierra al terminar.
+    La fábrica la deja el lifespan en app.state; en los tests se sustituye con dependency_overrides.
+    """
+    session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+    async with session_factory() as session:
         yield session
