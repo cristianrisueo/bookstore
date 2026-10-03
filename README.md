@@ -51,6 +51,9 @@ Escribe `make` para ver todos los comandos disponibles.
 | `make migrate` / `make rollback` | Aplica las migraciones pendientes o deshace la última |
 | `make run`                       | Arranca la API con recarga automática                 |
 | `make check`                     | Formatea, pasa el linter y comprueba los tipos        |
+| `make test`                      | Tests unitarios y de integración (necesita Docker)    |
+| `make test-unit`                 | Solo los unitarios (sin Docker)                       |
+| `make test-integration`          | Solo los de integración (Postgres efímero)            |
 
 ## Arquitectura
 
@@ -131,7 +134,9 @@ Entre dominios, `books` depende de `authors` y nunca al revés. El servicio de l
 
 **Relaciones cargadas explícitamente.** Las relaciones se declaran con `lazy="raise"` y se cargan con `selectinload` donde se necesitan. Si se accede a una relación sin cargarla, el error es claro, en lugar del `MissingGreenlet` propio de SQLAlchemy asíncrono.
 
-**Integridad en dos capas.** Un libro necesita un autor existente. El servicio lo comprueba para devolver un 404 claro, y la clave foránea de PostgreSQL lo garantiza siempre, incluso si el autor se borra entre la comprobación y el insert. Ese último caso hoy devuelve un 500 y está pendiente de traducir.
+**Integridad en dos capas.** Un libro necesita un autor existente. El servicio lo comprueba para devolver un 404 claro, y la clave foránea de PostgreSQL lo garantiza siempre, incluso si el autor se borra entre la comprobación y el insert. En ese caso el repositorio hace rollback y traduce la violación a `AuthorNotFoundError` (404). La identifica por su código SQLSTATE (`23503`) y por el nombre de la restricción, nunca solo por el tipo de excepción: cualquier otra violación (por ejemplo, el `CHECK` de `pages`) se relanza tal cual.
+
+**Liveness y readiness separados.** `GET /health` solo dice que el proceso está vivo y no toca la base de datos: si un orquestador reiniciara la API cuando falla, una caída de Postgres provocaría reinicios en cadena que no arreglan nada. `GET /health/ready` ejecuta `SELECT 1` y devuelve 503 si la base de datos no responde.
 
 **Convención de nombres.** Índices, restricciones únicas y claves foráneas tienen nombres predecibles (`ix_books_author_id`, `fk_books_author_id_authors`), lo que permite deshacer migraciones y entender los errores de PostgreSQL sin abrir el código.
 
@@ -155,4 +160,23 @@ Cada dominio debe importar su `models.py` en `migrations/env.py`. Sin ese import
 
 ## Tests
 
-Pendientes. Se ejecutarán contra un PostgreSQL real y efímero (testcontainers), no contra repositorios en memoria, para que reflejen el comportamiento real de restricciones, transacciones y concurrencia.
+Los tests corren contra un PostgreSQL 18 real y efímero ([testcontainers](https://testcontainers-python.readthedocs.io/)), la misma imagen que `compose.yml`. No hay repositorios en memoria ni mocks de la base de datos: así reflejan el comportamiento real de restricciones, transacciones y migraciones. `make test` necesita Docker, pero no tu base de datos de desarrollo, que nunca se toca.
+
+Cada comportamiento se prueba en el nivel más bajo que puede cazar su bug:
+
+| Nivel       | Carpeta              | Qué prueba                                                                                              |
+| ----------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| Unitario    | `tests/unit`         | Lógica pura en memoria: reglas de los schemas y la traducción de `ConflictError` a 409                 |
+| Integración | `tests/integration`  | El contrato HTTP completo (httpx + `ASGITransport`), la integridad de la base de datos y las migraciones |
+
+Cómo funciona la integración (`tests/integration/conftest.py`):
+
+- **Un contenedor por ejecución**, migrado a `head` con `alembic upgrade head` en un subproceso, igual que `make migrate`. El subproceso arranca en un directorio vacío, así que no lee el `.env` y solo usa la URL del contenedor.
+- **Aislamiento entre tests:** al terminar cada test se vacían todas las tablas con `TRUNCATE ... RESTART IDENTITY CASCADE`. Los datos se confirman de verdad, como en producción.
+- **Una sesión por petición:** la dependencia `get_session` se sustituye con `app.dependency_overrides` por una que abre una sesión nueva en cada petición. Compartir la del test haría que el identity map ocultara lo que de verdad hay en la base de datos.
+- **Migraciones en su propia base de datos:** cada test de migraciones crea una base de datos vacía en el mismo contenedor y la borra al terminar. Así un `downgrade` no afecta a los demás tests. Se comprueba que los modelos y las migraciones coinciden (`alembic check`), que todo se puede bajar y subir, y que la migración que relaciona `books` con `authors` conserva los datos.
+- **Lo que solo alcanza el repositorio** (el `CHECK` de `pages` y la clave foránea, porque Pydantic y el servicio los filtran antes) se prueba llamando al repositorio directamente.
+
+El CI (`.github/workflows/ci.yml`) ejecuta `make check` y `make test` en cada push a `main` y en cada pull request. Como `make check` formatea en vez de fallar, el CI comprueba después con `git diff --exit-code` que no ha cambiado nada.
+
+Al seguir TDD, el test rojo se sube marcado con `@pytest.mark.xfail(strict=True, raises=...)` para que `main` siga en verde, y el commit del arreglo quita el marcador.
