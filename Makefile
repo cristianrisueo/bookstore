@@ -1,0 +1,39 @@
+# Comandos del proyecto bookstore. Escribe "make" para ver la lista.
+.PHONY: help up stop destroy psql migrate migration rollback run check
+
+help:  ## Muestra esta ayuda
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
+
+# --- Base de datos (Docker) ---
+
+up:  ## Levanta Postgres en segundo plano
+	docker compose up -d
+
+stop:  ## Apaga el contenedor sin borrarlo
+	docker compose stop
+
+destroy:  ## Elimina el contenedor Y LOS DATOS
+	docker compose down -v
+
+psql:  ## Abre una consola SQL dentro de la base de datos
+	docker compose exec db psql -U bookstore -d bookstore
+
+# --- Migraciones ---
+
+migrate:  ## Aplica las migraciones pendientes
+	uv run alembic upgrade head
+
+migration:  ## Genera una migración desde los modelos. Uso: make migration m="mensaje"
+	@test -n "$(m)" || (echo 'Falta el mensaje: make migration m="crear books"' && exit 1)
+	uv run alembic revision --autogenerate -m "$(m)"
+
+rollback:  ## Deshace la última migración
+	uv run alembic downgrade -1
+
+# --- Desarrollo ---
+
+run:  ## Arranca la API con recarga automática
+	uv run uvicorn bookstore.main:app --reload
+
+check:  ## Formatea, pasa el linter y comprueba los tipos
+	uv run ruff format . && uv run ruff check . && uv run mypy src
