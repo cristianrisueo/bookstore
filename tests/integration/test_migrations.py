@@ -1,9 +1,7 @@
 # Migraciones de Alembic. Cada test trabaja en su propia base de datos vacía (bd_migraciones).
-import subprocess
 from collections.abc import Callable
 from typing import Any
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -27,8 +25,6 @@ def test_migraciones_bajan_y_suben_en_vacio(bd_migraciones: str, alembic: Alembi
     alembic(bd_migraciones, "upgrade", "head")
 
 
-# TDD en rojo: hoy la migración añade author_id NOT NULL sin rellenarlo y falla con libros existentes
-@pytest.mark.xfail(strict=True, raises=subprocess.CalledProcessError, reason="b4a93e7c8ffd no rellena author_id")
 async def test_relacionar_books_con_authors_conserva_datos(bd_migraciones: str, alembic: AlembicRunner) -> None:
     """
     La migración que sustituye books.author (texto) por author_id (FK) conserva los datos al subir y al bajar,
