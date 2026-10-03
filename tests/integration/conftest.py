@@ -31,10 +31,6 @@ class AlembicRunner(Protocol):
     def __call__(self, url: str, *args: str) -> None: ...
 
 
-class AlembicError(Exception):
-    """Un comando de Alembic terminó con error. El mensaje incluye su stderr."""
-
-
 @pytest.fixture(scope="session")
 def alembic() -> Iterator[AlembicRunner]:
     """
@@ -53,7 +49,10 @@ def alembic() -> Iterator[AlembicRunner]:
                 text=True,
             )
             if result.returncode != 0:
-                raise AlembicError(f"alembic {' '.join(args)} falló:\n{result.stderr}")
+                # CalledProcessError no muestra el stderr: se añade como nota para verlo en el informe de pytest
+                error = subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+                error.add_note(result.stderr)
+                raise error
 
         yield run
 
