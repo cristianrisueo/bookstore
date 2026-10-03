@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bookstore.authors.exceptions import AuthorNotFoundError
 from bookstore.authors.repository import SqlAuthorRepository
 from bookstore.authors.schemas import AuthorIn
 from bookstore.books.models import BookModel
@@ -32,3 +33,23 @@ async def test_check_rechaza_paginas_no_positivas(session: AsyncSession) -> None
     assert getattr(original and original.__cause__, "constraint_name", None) == "ck_books_pages_positive"
     await session.rollback()
     assert await session.scalar(select(func.count()).select_from(BookModel)) == 0
+
+
+# TDD en rojo: hoy la violación de la FK sale como IntegrityError, que en HTTP sería un 500
+@pytest.mark.xfail(strict=True, raises=IntegrityError, reason="el repositorio no traduce la FK de autor")
+async def test_anadir_libro_con_autor_inexistente_lanza_author_not_found(session: AsyncSession) -> None:
+    """
+    Si el autor no existe (por ejemplo, se borró entre la comprobación del servicio y el insert), la FK
+    salta y el repositorio la traduce a AuthorNotFoundError (404), no a un 500. Tras el error, la sesión
+    sigue sirviendo: hubo rollback.
+    """
+    repositorio = SqlBookRepository(session)
+
+    with pytest.raises(AuthorNotFoundError) as error:
+        await repositorio.add(BookIn(title="Dune", author_id=999, pages=412))
+
+    assert error.value.author_id == 999
+    autor = await SqlAuthorRepository(session).add(AuthorIn(name="Frank Herbert"))
+    libro = await repositorio.add(BookIn(title="Dune", author_id=autor.id, pages=412))
+    assert await session.scalar(select(func.count()).select_from(BookModel)) == 1
+    assert libro.author == autor
