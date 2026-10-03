@@ -55,6 +55,8 @@ Escribe `make` para ver todos los comandos disponibles.
 | `make test-unit`                 | Solo los unitarios (sin Docker)                       |
 | `make test-integration`          | Solo los de integración (Postgres efímero)            |
 | `make coverage`                  | Tests con informe de cobertura (`htmlcov/index.html`) |
+| `make e2e`                       | Levanta la API en Docker, migra y pasa E2E y smoke    |
+| `make smoke BASE_URL=...`        | Smoke contra un sistema ya desplegado                 |
 
 ## Arquitectura
 
@@ -147,6 +149,17 @@ Las migraciones no se aplican solas al arrancar. El flujo es: modificar los mode
 
 Cada dominio debe importar su `models.py` en `migrations/env.py`. Sin ese import, Alembic no ve sus tablas.
 
+Una migración que añade una columna obligatoria a una tabla con datos sigue el patrón *expand → backfill → contract*: crea la columna admitiendo `NULL`, la rellena y solo después la hace `NOT NULL`. `b4a93e7c8ffd` es el ejemplo, y su test comprueba que conserva los datos al subir y al bajar.
+
+## Docker
+
+El `Dockerfile` construye la imagen de la API, que también sirve para migrar. En `compose.yml`, los servicios `api` (puerto 8001) y `migrate` están en el perfil `app`, así que `make up` sigue levantando solo PostgreSQL. Las migraciones nunca se aplican al arrancar la API: son un paso explícito, como en un pipeline de despliegue.
+
+```bash
+docker compose --profile app up -d --build --wait db api
+docker compose --profile app run --rm migrate
+```
+
 ## Añadir un dominio nuevo
 
 | Paso | Qué hacer                                                                                                                                    |
@@ -169,6 +182,7 @@ Cada comportamiento se prueba en el nivel más bajo que puede cazar su bug:
 | ----------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
 | Unitario    | `tests/unit`         | Lógica pura en memoria: reglas de los schemas y la traducción de `ConflictError` a 409                 |
 | Integración | `tests/integration`  | El contrato HTTP completo (httpx + `ASGITransport`), la integridad de la base de datos y las migraciones |
+| E2E y smoke | `tests/e2e`          | Peticiones reales contra la API desplegada en contenedores: el flujo principal y `/health/ready`        |
 
 Cómo funciona la integración (`tests/integration/conftest.py`):
 
@@ -177,6 +191,8 @@ Cómo funciona la integración (`tests/integration/conftest.py`):
 - **Una sesión por petición:** la dependencia `get_session` se sustituye con `app.dependency_overrides` por una que abre una sesión nueva en cada petición. Compartir la del test haría que el identity map ocultara lo que de verdad hay en la base de datos.
 - **Migraciones en su propia base de datos:** cada test de migraciones crea una base de datos vacía en el mismo contenedor y la borra al terminar. Así un `downgrade` no afecta a los demás tests. Se comprueba que los modelos y las migraciones coinciden (`alembic check`), que todo se puede bajar y subir, y que la migración que relaciona `books` con `authors` conserva los datos.
 - **Lo que solo alcanza el repositorio** (el `CHECK` de `pages` y la clave foránea, porque Pydantic y el servicio los filtran antes) se prueba llamando al repositorio directamente.
+
+Los E2E y el smoke no forman parte de `make test`: necesitan el sistema desplegado. `make e2e` construye la imagen, levanta `db` y `api`, aplica las migraciones con el servicio `migrate` y pasa `tests/e2e` contra `http://127.0.0.1:8001`. Al terminar para la API. Usa la base de datos de desarrollo, así que deja en ella los datos que crea. `make smoke BASE_URL=...` pasa solo el smoke, que no escribe nada, contra cualquier entorno.
 
 El CI (`.github/workflows/ci.yml`) ejecuta `make check` y `make test` en cada push a `main` y en cada pull request. Como `make check` formatea en vez de fallar, el CI comprueba después con `git diff --exit-code` que no ha cambiado nada.
 
