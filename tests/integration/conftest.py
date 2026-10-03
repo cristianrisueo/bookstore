@@ -6,14 +6,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Protocol
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import make_url, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
 from bookstore.core.config import Settings
@@ -123,3 +124,24 @@ async def client(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIter
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_session)
+
+
+@pytest.fixture
+async def bd_migraciones(postgres: PostgresContainer) -> AsyncIterator[str]:
+    """
+    Base de datos vacía y exclusiva de un test, dentro del mismo contenedor. Los tests de migraciones
+    bajan y suben el esquema: hacerlo en el esquema de sesión rompería a los demás tests si fallan a medias.
+    """
+    url = postgres.get_connection_url()
+    nombre = f"mig_{uuid.uuid4().hex}"
+    # CREATE/DROP DATABASE no pueden ir dentro de una transacción: de ahí AUTOCOMMIT
+    admin = create_async_engine(url, isolation_level="AUTOCOMMIT")
+    async with admin.connect() as conn:
+        await conn.execute(text(f'CREATE DATABASE "{nombre}"'))
+
+    yield make_url(url).set(database=nombre).render_as_string(hide_password=False)
+
+    # WITH (FORCE) cierra las conexiones que un test fallido haya dejado abiertas
+    async with admin.connect() as conn:
+        await conn.execute(text(f'DROP DATABASE "{nombre}" WITH (FORCE)'))
+    await admin.dispose()
