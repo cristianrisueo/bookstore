@@ -1,5 +1,5 @@
 # Comandos del proyecto bookstore. Escribe "make" para ver la lista.
-.PHONY: help up stop down destroy psql migrate migration rollback run check
+.PHONY: help up stop down destroy psql migrate migration rollback run check test test-unit test-integration
 
 help:  ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -40,3 +40,14 @@ run:  ## Arranca la API con recarga automática
 
 check:  ## Formatea, pasa el linter y comprueba los tipos
 	uv run ruff format . && uv run ruff check . && uv run mypy src
+
+# --- Tests ---
+
+test:  ## Unitarios + integración (necesita Docker, no el sistema desplegado)
+	uv run pytest
+
+test-unit:  ## Solo unitarios (sin Docker)
+	uv run pytest tests/unit
+
+test-integration:  ## Solo integración (Postgres efímero con testcontainers)
+	uv run pytest tests/integration

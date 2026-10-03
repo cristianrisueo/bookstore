@@ -18,8 +18,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.16.10",
+    "testcontainers>=4.15.0",
 ]
 
 [tool.ruff]
@@ -32,3 +36,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.14"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+# `uv run pytest` a secas nunca necesita el sistema desplegado (E2E y smoke van aparte)
+testpaths = ["tests/unit", "tests/integration"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib", "-ra"]
+# Engine y conexiones asyncpg quedan ligados al loop donde se crean: un único loop para toda la sesión
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
